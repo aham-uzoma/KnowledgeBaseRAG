@@ -1,0 +1,10 @@
+streamlit
+langchain
+langchain-openai
+langchain-chroma
+langchain-huggingface
+docling
+python-dotenv
+loguru
+sentence-transformers
+Pillow
