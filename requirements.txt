@@ -9,5 +9,3 @@ python-dotenv
 loguru
 sentence-transformers
 Pillow
-libgl1
-libglib2.0-0
