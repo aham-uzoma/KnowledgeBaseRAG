@@ -70,39 +70,87 @@ class VectorStoreManager:
     #     )
     #     logger.success("Vector Database is ready!")
 
-    
-    def build_index(self):
-        """Reads all processed MD files and saves them to ChromaDB"""
-        all_documents = []
-        md_files = list(self.processed_dir.glob("*.md"))
+    def build_index(self, specific_file: Path = None):
+        """
+        If specific_file is provided, only adds that file. 
+        Otherwise, builds the whole index from scratch.
+        """
+        # 1. Load existing DB if it exists, otherwise create new
+        if self.db_dir.exists() and any(self.db_dir.iterdir()):
+            self.vector_db = Chroma(
+                persist_directory=str(self.db_dir), 
+                embedding_function=self.embeddings
+            )
+            logger.info("Loaded existing Vector Database.")
+        else:
+            self.vector_db = None
 
-        if not md_files:
-            logger.warning("No processed markdown files found!")
+        # 2. Decide which files to process
+        if specific_file:
+            files_to_process = [specific_file]
+        else:
+            files_to_process = list(self.processed_dir.glob("*.md"))
+
+        if not files_to_process:
+            logger.warning("No files to index.")
             return
 
-        for md_file in md_files:
+        all_documents = []
+        for md_file in files_to_process:
             logger.info(f"Chunking: {md_file.name}")
             chunks = self.chunk_markdown(md_file)
-
-            # Convert each chunk to a Document with metadata
-            # docs = [Document(page_content=chunk, metadata={"source": md_file.name}) for chunk in chunks]
-            # all_documents.extend(docs)
             for chunk in chunks:
-                # Inject the filename into the content so the LLM knows which file it's reading
                 chunk.page_content = f"Source File: {md_file.name}\n\n{chunk.page_content}"
                 chunk.metadata["source"] = md_file.name
-    
             all_documents.extend(chunks)
 
-        logger.info(f"Saving {len(all_documents)} documents to {self.db_dir}...")
-
-        self.vector_db = Chroma.from_documents(
-            documents=all_documents,
-            embedding=self.embeddings,
-            persist_directory=str(self.db_dir)
-        )
-        # self.vector_db.persist()
+        # 3. Add to DB instead of recreating from scratch
+        if self.vector_db:
+            logger.info(f"Adding {len(all_documents)} new documents to existing DB...")
+            self.vector_db.add_documents(all_documents)
+        else:
+            logger.info(f"Creating new DB with {len(all_documents)} documents...")
+            self.vector_db = Chroma.from_documents(
+                documents=all_documents,
+                embedding=self.embeddings,
+                persist_directory=str(self.db_dir)
+            )
+        
         logger.success("Vector Database is ready!")
+
+    
+    # def build_index(self):
+    #     """Reads all processed MD files and saves them to ChromaDB"""
+    #     all_documents = []
+    #     md_files = list(self.processed_dir.glob("*.md"))
+
+    #     if not md_files:
+    #         logger.warning("No processed markdown files found!")
+    #         return
+
+    #     for md_file in md_files:
+    #         logger.info(f"Chunking: {md_file.name}")
+    #         chunks = self.chunk_markdown(md_file)
+
+    #         # Convert each chunk to a Document with metadata
+    #         # docs = [Document(page_content=chunk, metadata={"source": md_file.name}) for chunk in chunks]
+    #         # all_documents.extend(docs)
+    #         for chunk in chunks:
+    #             # Inject the filename into the content so the LLM knows which file it's reading
+    #             chunk.page_content = f"Source File: {md_file.name}\n\n{chunk.page_content}"
+    #             chunk.metadata["source"] = md_file.name
+    
+    #         all_documents.extend(chunks)
+
+    #     logger.info(f"Saving {len(all_documents)} documents to {self.db_dir}...")
+
+    #     self.vector_db = Chroma.from_documents(
+    #         documents=all_documents,
+    #         embedding=self.embeddings,
+    #         persist_directory=str(self.db_dir)
+    #     )
+    #     # self.vector_db.persist()
+    #     logger.success("Vector Database is ready!")
     
     
     def search(self, query: str, k: int = 3):

@@ -16,7 +16,18 @@ class IntelligentAgent:
     def __init__(self):
         logger.info("Initializing Intelligent Concierge Agent with Memory...")
         
-        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        # self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        # In your IntelligentAgent.__init__ and VectorStoreManager.__init__
+
+        # Note: The first time it runs, it will download. 
+        # After that, it stays offline and super fast.
+
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': False}
+        )
+
         
         self.vector_db = Chroma(
             persist_directory="data/vector_db",
@@ -39,7 +50,7 @@ class IntelligentAgent:
         # 2. CREATE CONVERSATIONAL CHAIN
         self.qa_chain = ConversationalRetrievalChain.from_llm(
             llm=self.llm,
-            retriever=self.vector_db.as_retriever(search_kwargs={"k": 5}), # Increased k to 5
+            retriever=self.vector_db.as_retriever(search_kwargs={"k": 8}), # Increased k to 8
             memory=self.memory,
             return_source_documents=True # CRUCIAL: This tells us WHY it says "I don't know"
         )

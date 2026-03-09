@@ -37,33 +37,70 @@ if "pdf_processed" not in st.session_state:
 st.sidebar.header("📄 EdSpan Knowledge Base")
 uploaded_pdf = st.sidebar.file_uploader("Upload a PDF to teach the agent", type=["pdf"])
 
+# --- TRACKER LOGIC ---
+# Initialize a tracker to see if the filename has changed
+if "last_processed_file" not in st.session_state:
+    st.session_state.last_processed_file = None
+
+# If a new file is uploaded that is different from the last one, reset the flag
+if uploaded_pdf is not None and uploaded_pdf.name != st.session_state.last_processed_file:
+    st.session_state.pdf_processed = False
+
+# # Clear Chat / Reset Button
+# if st.sidebar.button("Clear Conversation & Reset"):
+#     st.session_state.messages = []
+#     # Clear the memory in the actual LangChain object too
+#     st.session_state.agent.memory.clear()
+#     st.rerun()
+
 # Clear Chat / Reset Button
 if st.sidebar.button("Clear Conversation & Reset"):
     st.session_state.messages = []
-    # Clear the memory in the actual LangChain object too
     st.session_state.agent.memory.clear()
+    st.session_state.pdf_processed = False # Reset flag on manual clear too
+    st.session_state.last_processed_file = None
     st.rerun()
 
 # Processing Logic
 if uploaded_pdf is not None and not st.session_state.pdf_processed:
     raw_dir = Path("data/raw")
+    processed_dir = Path("data/processed")
     raw_dir.mkdir(parents=True, exist_ok=True)
+    processed_dir.mkdir(parents=True, exist_ok=True)
+
     file_path = raw_dir / uploaded_pdf.name
+    output_markdown = processed_dir / f"{Path(uploaded_pdf.name).stem}.md"
 
     with st.sidebar.status("Processing Document...", expanded=True) as status:
         # Save file
         with open(file_path, "wb") as f:
             f.write(uploaded_pdf.getbuffer())
-        st.write("Checking PDF...")
 
-        # Convert PDF → Markdown
-        ingestor = KnowledgeIngestor()
-        processed_path = ingestor.process_pdf(uploaded_pdf.name)
+        # st.write("Checking PDF...")
 
-        if processed_path:
+        # # Convert PDF → Markdown
+        # ingestor = KnowledgeIngestor()
+        # processed_path = ingestor.process_pdf(uploaded_pdf.name)
+
+        # 2. THE SMART CHECK: Check if conversion is needed
+        if output_markdown.exists():
+            st.info(f"⏩ Found existing index for {uploaded_pdf.name}. Skipping OCR.")
+            processed_path = str(output_markdown)
+            # We still need to index it if this is a fresh upload in this session
+            should_index = True
+        else:
+            st.write("🚀 Converting PDF to Markdown (Fast Mode)...")
+            ingestor = KnowledgeIngestor()
+            processed_path = ingestor.process_pdf(uploaded_pdf.name)
+            should_index = True if processed_path else False
+
+        # if processed_path:
+        if should_index:
             st.write("Indexing content into Vector DB...")
             manager = VectorStoreManager()
-            manager.build_index()
+            # manager.build_index()
+            manager.build_index(specific_file=Path(processed_path))
+
 
             # Update the Agent's knowledge base dynamically
             st.session_state.agent.vector_db = manager.vector_db
@@ -76,10 +113,14 @@ if uploaded_pdf is not None and not st.session_state.pdf_processed:
                 return_source_documents=True
             )
             
-            st.session_state.pdf_processed = True
-            status.update(label="✅ Knowledge Base Updated!", state="complete")
-        else:
-            status.update(label="❌ Ingestion Failed", state="error")
+        #     st.session_state.pdf_processed = True
+        #     status.update(label="Knowledge Base Updated!", state="complete")
+        # else:
+        #     status.update(label="Ingestion Failed", state="error")
+        # This is the "Stop Sign" for Streamlit
+            st.session_state.pdf_processed = True 
+            st.session_state.last_processed_file = uploaded_pdf.name
+            status.update(label="Ready for Chat!", state="complete")
 
 # -----------------------------
 # 3. Display Chat History
@@ -113,130 +154,6 @@ if prompt := st.chat_input("Ask me something about your documents..."):
                 st.session_state.messages.append({"role": "assistant", "content": response_text})
             except Exception as e:
                 st.error(f"An error occurred: {e}")
-
-
-
-
-
-# import streamlit as st
-# from pathlib import Path
-# from agent import IntelligentAgent
-# from ingestor import KnowledgeIngestor
-# from database import VectorStoreManager
-# from langchain_classic.chains import ConversationalRetrievalChain
-
-
-# st.set_page_config(page_title="Intelligent Concierge", page_icon="🤖")
-
-# st.title("🤖 Intelligent Concierge Agent")
-# st.caption("Conversational RAG with Memory")
-
-# # -----------------------------
-# # Initialize Agent
-# # -----------------------------
-# if "agent" not in st.session_state:
-#     st.session_state.agent = IntelligentAgent()
-
-# if "messages" not in st.session_state:
-#     st.session_state.messages = []
-
-
-# # -----------------------------
-# # Keep track of PDF processing
-# # -----------------------------
-# if "pdf_processed" not in st.session_state:
-#     st.session_state.pdf_processed = False  # <-- Add this here
-
-# # -----------------------------
-# # SIDEBAR (PDF Upload Section)
-# # -----------------------------
-# st.sidebar.header("📄 Upload Knowledge PDF")
-# uploaded_pdf = st.sidebar.file_uploader(
-#     "Upload a PDF",
-#     type=["pdf"]
-# )
-
-# if st.sidebar.button("Upload new PDF"):
-#     st.session_state.pdf_processed = False
-#     st.session_state.messages = []
-#     st.rerun()
-
-# if uploaded_pdf is not None and not st.session_state.pdf_processed:
-#     raw_dir = Path("data/raw")
-#     raw_dir.mkdir(parents=True, exist_ok=True)
-
-#     file_path = raw_dir / uploaded_pdf.name
-
-#     # Save uploaded file
-#     with open(file_path, "wb") as f:
-#         f.write(uploaded_pdf.getbuffer())
-
-#     st.sidebar.info("Processing PDF...")
-
-#     # Convert PDF → Markdown
-#     ingestor = KnowledgeIngestor()
-#     processed_path = ingestor.process_pdf(uploaded_pdf.name)
-
-#     # if processed_path:
-#     #     manager = VectorStoreManager()
-#     #     manager.build_index()
-
-#     #     # Reload vector DB inside agent
-#     #     st.session_state.agent.vector_db = manager.vector_db
-
-#     #     #  NEW: Update agent's retriever
-#     #     st.session_state.agent.qa_chain.retriever = manager.vector_db.as_retriever(search_kwargs={"k":5})
-
-
-#     #     st.sidebar.success("PDF processed and indexed successfully!")
-
-#     #     # Set flag to True so this block doesn't run again
-#     #     st.session_state.pdf_processed = True
-#     if processed_path:
-#         manager = VectorStoreManager()
-#         manager.build_index()
-
-#         # Reload vector DB in the agent
-#         st.session_state.agent.vector_db = manager.vector_db
-
-#         # Update retriever
-#         st.session_state.agent.qa_chain = ConversationalRetrievalChain.from_llm(
-#             llm=st.session_state.agent.llm,
-#             retriever=manager.vector_db.as_retriever(search_kwargs={"k": 5}),
-#             memory=st.session_state.agent.memory,
-#             return_source_documents=True
-#         )
-#         results = st.session_state.agent.vector_db.similarity_search("Test query from new PDF", k=3)
-#         st.write([r.page_content[:200] for r in results])
-
-#         st.sidebar.success("PDF processed and indexed successfully!")
-#         st.session_state.pdf_processed = True
-#     else:
-#         st.sidebar.error("Failed to process PDF.")
-# # -----------------------------
-# # Display Chat History
-# # -----------------------------
-# for message in st.session_state.messages:
-#     with st.chat_message(message["role"]):
-#         st.markdown(message["content"])
-
-# # -----------------------------
-# # Chat Input
-# # -----------------------------
-# if prompt := st.chat_input("Ask a question..."):
-
-#     st.session_state.messages.append({"role": "user", "content": prompt})
-
-#     with st.chat_message("user"):
-#         st.markdown(prompt)
-
-#     with st.chat_message("assistant"):
-#         with st.spinner("Thinking..."):
-#             response = st.session_state.agent.ask(prompt)
-#             st.markdown(response)
-
-#     st.session_state.messages.append({"role": "assistant", "content": response})
-
 
 
 
